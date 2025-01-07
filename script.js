@@ -64,13 +64,20 @@ function compression_over_time(lines, counter) {
     };
     let unzipped = {};
     for (let line of lines) {
-        for (let run of line.bench_groups["compress-rs"]) {
-            const key = run.cmd[1];
-            if (!unzipped[key]) {
-                unzipped[key] = { x: [], y: [], sha: [] };
+        for (let [group, runs] of Object.entries(line.bench_groups)) {
+            if (!group.startsWith("compress")) {
+                continue;
             }
-            unzipped[key].y.push(run.counters[counter].value);
-            unzipped[key].sha.push(line.commit_hash);
+            for (let run of runs) {
+                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
+                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
+                key += " (" + group + ")";
+                if (!unzipped[key]) {
+                    unzipped[key] = { x: [], y: [], sha: [] };
+                }
+                unzipped[key].y.push(run.counters[counter].value);
+                unzipped[key].sha.push(line.commit_hash);
+            }
         }
     }
     for (let key of Object.keys(unzipped)) {
@@ -115,13 +122,20 @@ function decompression_over_time(lines, counter) {
     };
     let unzipped = {};
     for (let line of lines) {
-        for (let run of line.bench_groups["decompress-rs"]) {
-            const key = run.cmd[2];
-            if (!unzipped[key]) {
-                unzipped[key] = { x: [], y: [], sha: [] };
+        for (let [group, runs] of Object.entries(line.bench_groups)) {
+            if (!group.startsWith("decompress")) {
+                continue;
             }
-            unzipped[key].y.push(run.counters[counter].value);
-            unzipped[key].sha.push(line.commit_hash);
+            for (let run of runs) {
+                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
+                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
+                key += " (" + group + ")";
+                if (!unzipped[key]) {
+                    unzipped[key] = { x: [], y: [], sha: [] };
+                }
+                unzipped[key].y.push(run.counters[counter].value);
+                unzipped[key].sha.push(line.commit_hash);
+            }
         }
     }
     for (let key of Object.keys(unzipped)) {
@@ -131,7 +145,7 @@ function decompression_over_time(lines, counter) {
         plot.data.push({
             y: unzipped[key].y,
             text: unzipped[key].sha,
-            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
+            name: `${key}`,
             hovertemplate: `%{y} %{text}`
         });
     }
@@ -163,19 +177,12 @@ function render(data_url, entries) {
         Plotly.newPlot(plotDiv, plot.data, plot.layout);
         bodyElement.appendChild(plotDiv);
     }
-    /*
     {
         const plot = compression_over_time(entries, counter);
-
         // Render the plot
-        const plotDiv = document.createElement(
-            "div"
-        ) as any as Plotly.PlotlyHTMLElement;
-
+        const plotDiv = document.createElement("div");
         Plotly.newPlot(plotDiv, plot.data, plot.layout);
-
         bodyElement.appendChild(plotDiv);
     }
-    */
 }
 main();

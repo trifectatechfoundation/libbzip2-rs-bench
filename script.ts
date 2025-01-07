@@ -3,52 +3,52 @@ type MemoryMetric = [number, 'MB'];
 type TimeMetric = [number, 'ms'];
 
 type Root = {
-  commit_hash: string
-  commit_timestamp: number
-  timestamp: Timestamp
-  arch: string
-  os: string
-  runner: string
-  cpu_model: string
-  bench_groups: {[key: string]: SingleBench[]},
+    commit_hash: string
+    commit_timestamp: number
+    timestamp: Timestamp
+    arch: string
+    os: string
+    runner: string
+    cpu_model: string
+    bench_groups: { [key: string]: SingleBench[] },
 };
 
 type Timestamp = {
-  secs_since_epoch: number
-  nanos_since_epoch: number
+    secs_since_epoch: number
+    nanos_since_epoch: number
 };
 
 type SingleBench = {
-  cmd: string[]
-  counters: Counters
+    cmd: string[]
+    counters: Counters
 };
 
 type CounterName = "cycles" | "instructions" | "user-time" | "task-clock";
 type Counters = {
-  cycles: Cycles
-  instructions: Instructions
-  "user-time": UserTime,
-  "task-clock": TaskClock
+    cycles: Cycles
+    instructions: Instructions
+    "user-time": UserTime,
+    "task-clock": TaskClock
 };
 
 type Cycles = {
-  value: string
-  unit: string
+    value: string
+    unit: string
 };
 
 type Instructions = {
-  value: string
-  unit: string
+    value: string
+    unit: string
 };
 
 type UserTime = {
-  value: string
-  unit: string
+    value: string
+    unit: string
 };
 
 type TaskClock = {
-  value: string
-  unit: string
+    value: string
+    unit: string
 };
 
 type Plots = {
@@ -122,18 +122,26 @@ function compression_over_time(lines: Root[], counter: CounterName): Plots {
         },
     };
 
-    let unzipped: {[level: string]: {x: [], y: string[], sha: string[]}} = {};
+    let unzipped: { [level: string]: { x: [], y: string[], sha: string[] } } = {};
 
     for (let line of lines) {
-        for (let run of line.bench_groups["compress-rs"]) {
-            const key = run.cmd[1];
-
-            if (!unzipped[key]) {
-                unzipped[key] = { x: [], y: [], sha: [] };
+        for (let [group, runs] of Object.entries(line.bench_groups)) {
+            if (!group.startsWith("compress")) {
+                continue;
             }
 
-            unzipped[key].y.push(run.counters[counter].value);
-            unzipped[key].sha.push(line.commit_hash);
+            for (let run of runs) {
+                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
+                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
+                key += " (" + group + ")";
+
+                if (!unzipped[key]) {
+                    unzipped[key] = { x: [], y: [], sha: [] };
+                }
+
+                unzipped[key].y.push(run.counters[counter].value);
+                unzipped[key].sha.push(line.commit_hash);
+            }
         }
     }
 
@@ -181,18 +189,25 @@ function decompression_over_time(lines: Root[], counter: CounterName): Plots {
         },
     };
 
-    let unzipped: {[key: string]: {x: [], y: string[], sha: string[]}} = {};
+    let unzipped: { [key: string]: { x: [], y: string[], sha: string[] } } = {};
 
     for (let line of lines) {
-        for (let run of line.bench_groups["decompress-rs"]) {
-            const key = run.cmd[2];
-
-            if (!unzipped[key]) {
-                unzipped[key] = { x: [], y: [], sha: [] };
+        for (let [group, runs] of Object.entries(line.bench_groups)) {
+            if (!group.startsWith("decompress")) {
+                continue;
             }
+            for (let run of runs) {
+                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
+                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
+                key += " (" + group + ")";
 
-            unzipped[key].y.push(run.counters[counter].value);
-            unzipped[key].sha.push(line.commit_hash);
+                if (!unzipped[key]) {
+                    unzipped[key] = { x: [], y: [], sha: [] };
+                }
+
+                unzipped[key].y.push(run.counters[counter].value);
+                unzipped[key].sha.push(line.commit_hash);
+            }
         }
     }
 
@@ -204,7 +219,7 @@ function decompression_over_time(lines: Root[], counter: CounterName): Plots {
         plot.data.push({
             y: unzipped[key].y,
             text: unzipped[key].sha,
-            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
+            name: `${key}`,
             hovertemplate: `%{y} %{text}`
         });
     }
@@ -252,7 +267,6 @@ function render(data_url: string, entries: Root[]) {
         bodyElement.appendChild(plotDiv);
     }
 
-    /*
     {
         const plot = compression_over_time(entries, counter);
 
@@ -265,7 +279,6 @@ function render(data_url: string, entries: Root[]) {
 
         bodyElement.appendChild(plotDiv);
     }
-    */
 }
 
 main();
