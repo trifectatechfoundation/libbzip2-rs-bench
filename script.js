@@ -39,9 +39,9 @@ function compression_over_time(lines, counter) {
     let plot = {
         data: [],
         layout: {
-            title: "zlib-rs compression",
+            title: "libbzip2-rs compression",
             xaxis: {
-                title: "Compression Level",
+                title: "Benchmark Index",
                 tickformat: 'd', // only integers
             },
             yaxis: {
@@ -64,7 +64,7 @@ function compression_over_time(lines, counter) {
     };
     let unzipped = {};
     for (let line of lines) {
-        for (let run of line.bench_groups["blogpost-compress-rs"]) {
+        for (let run of line.bench_groups["compress-rs"]) {
             const key = run.cmd[1];
             if (!unzipped[key]) {
                 unzipped[key] = { x: [], y: [], sha: [] };
@@ -73,14 +73,14 @@ function compression_over_time(lines, counter) {
             unzipped[key].sha.push(line.commit_hash);
         }
     }
-    for (let level of ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].reverse()) {
-        if (!unzipped[level]) {
+    for (let key of Object.keys(unzipped)) {
+        if (!unzipped[key]) {
             continue;
         }
         plot.data.push({
-            y: unzipped[level].y,
-            text: unzipped[level].sha,
-            name: `level ${level}`,
+            y: unzipped[key].y,
+            text: unzipped[key].sha,
+            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
             hovertemplate: `%{y} %{text}`
         });
     }
@@ -115,7 +115,7 @@ function decompression_over_time(lines, counter) {
     };
     let unzipped = {};
     for (let line of lines) {
-        for (let run of line.bench_groups["blogpost-uncompress-rs"]) {
+        for (let run of line.bench_groups["decompress-rs"]) {
             const key = run.cmd[2];
             if (!unzipped[key]) {
                 unzipped[key] = { x: [], y: [], sha: [] };
@@ -124,112 +124,24 @@ function decompression_over_time(lines, counter) {
             unzipped[key].sha.push(line.commit_hash);
         }
     }
-    for (let level of Array.from({ length: 24 - 4 + 1 }, (_, i) => String(24 - i))) {
-        if (!unzipped[level]) {
+    for (let key of Object.keys(unzipped)) {
+        if (!unzipped[key]) {
             continue;
         }
         plot.data.push({
-            y: unzipped[level].y,
-            text: unzipped[level].sha,
-            name: `2^${level}`,
+            y: unzipped[key].y,
+            text: unzipped[key].sha,
+            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
             hovertemplate: `%{y} %{text}`
         });
     }
-    return plot;
-}
-function compression_ng_versus_rs(commit, ng, rs, counter) {
-    let plot = {
-        data: [],
-        layout: {
-            title: `zlib-ng versus zlib-rs (compression, on <a href="https://github.com/trifectatechfoundation/zlib-rs/commit/${commit}">main</a>)`,
-            xaxis: {
-                title: "Compression Level",
-            },
-            yaxis: {
-                title: "Wall Time (ms)",
-                rangemode: "tozero",
-            },
-            height: 700,
-            width: Math.min(1200, window.innerWidth - 30),
-            margin: {
-                l: 50,
-                r: 20,
-                b: 100,
-                t: 100,
-                pad: 4,
-            },
-            legend: {
-                orientation: window.innerWidth < 700 ? "h" : "v",
-            },
-        },
-    };
-    plot.data.push({
-        x: ng.map((result) => parseFloat(result.cmd[1])),
-        y: ng.map((result) => parseFloat(result.counters[counter].value)),
-        name: "zlib-ng",
-    });
-    plot.data.push({
-        x: rs.map((result) => parseFloat(result.cmd[1])),
-        y: rs.map((result) => parseFloat(result.counters[counter].value)),
-        text: rs.map((result, index) => {
-            let vrs = parseFloat(result.counters[counter].value);
-            let vng = parseFloat(ng[index].counters[counter].value);
-            return ((vng / vrs)).toFixed(2);
-        }),
-        name: "zlib-rs",
-        hovertemplate: '%{y} (%{text}x faster than zlib-ng)'
-    });
-    return plot;
-}
-function decompression_ng_versus_rs(commit, ng, rs, counter) {
-    let plot = {
-        data: [],
-        layout: {
-            title: `zlib-ng versus zlib-rs (decompression, on <a href="https://github.com/trifectatechfoundation/zlib-rs/commit/${commit}">main</a>)`,
-            xaxis: {
-                title: "Chunk Size (2^n bytes)",
-            },
-            yaxis: {
-                title: "Wall Time (ms)",
-                rangemode: "tozero",
-            },
-            height: 700,
-            width: Math.min(1200, window.innerWidth - 30),
-            margin: {
-                l: 50,
-                r: 20,
-                b: 100,
-                t: 100,
-                pad: 4,
-            },
-            legend: {
-                orientation: window.innerWidth < 700 ? "h" : "v",
-            },
-        },
-    };
-    plot.data.push({
-        x: ng.map((result) => parseFloat(result.cmd[2])),
-        y: ng.map((result) => parseFloat(result.counters[counter].value)),
-        name: "zlib-ng",
-    });
-    plot.data.push({
-        x: rs.map((result) => parseFloat(result.cmd[2])),
-        y: rs.map((result) => parseFloat(result.counters[counter].value)),
-        text: rs.map((result, index) => {
-            let vrs = parseFloat(result.counters[counter].value);
-            let vng = parseFloat(ng[index].counters[counter].value);
-            return ((vng / vrs)).toFixed(2);
-        }),
-        name: "zlib-rs",
-        hovertemplate: '%{y} (%{text}x faster than zlib-ng)'
-    });
     return plot;
 }
 async function main() {
     await update('linux-x86');
 }
 async function update(target) {
-    let data_url = `https://raw.githubusercontent.com/trifectatechfoundation/zlib-rs-bench/main/metrics-${target}.json`;
+    let data_url = `https://raw.githubusercontent.com/trifectatechfoundation/libbzip2-rs-bench/main/metrics-${target}.json`;
     const data = await (await fetch(data_url)).text();
     const entries = data
         .split('\n')
@@ -245,38 +157,25 @@ function render(data_url, entries) {
     }
     const counter = data_url.includes("macos") ? "user-time" : "task-clock";
     {
-        const final = entries[entries.length - 1];
-        const final_ng = final.bench_groups["blogpost-uncompress-ng"];
-        const final_rs = final.bench_groups["blogpost-uncompress-rs"];
-        const plot = decompression_ng_versus_rs(final.commit_hash, final_ng, final_rs, counter);
-        // Render the plot
-        const plotDiv = document.createElement("div");
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-        bodyElement.appendChild(plotDiv);
-    }
-    {
         const plot = decompression_over_time(entries, counter);
         // Render the plot
         const plotDiv = document.createElement("div");
         Plotly.newPlot(plotDiv, plot.data, plot.layout);
         bodyElement.appendChild(plotDiv);
     }
-    {
-        const final = entries[entries.length - 1];
-        const final_ng = final.bench_groups["blogpost-compress-ng"];
-        const final_rs = final.bench_groups["blogpost-compress-rs"];
-        const plot = compression_ng_versus_rs(final.commit_hash, final_ng, final_rs, counter);
-        // Render the plot
-        const plotDiv = document.createElement("div");
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-        bodyElement.appendChild(plotDiv);
-    }
+    /*
     {
         const plot = compression_over_time(entries, counter);
+
         // Render the plot
-        const plotDiv = document.createElement("div");
+        const plotDiv = document.createElement(
+            "div"
+        ) as any as Plotly.PlotlyHTMLElement;
+
         Plotly.newPlot(plotDiv, plot.data, plot.layout);
+
         bodyElement.appendChild(plotDiv);
     }
+    */
 }
 main();
