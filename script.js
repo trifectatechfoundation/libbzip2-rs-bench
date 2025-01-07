@@ -39,7 +39,7 @@ function compression_over_time(lines, counter) {
     let plot = {
         data: [],
         layout: {
-            title: "libbzip2-rs compression",
+            title: "compression",
             xaxis: {
                 title: "Benchmark Index",
                 tickformat: 'd', // only integers
@@ -97,7 +97,7 @@ function decompression_over_time(lines, counter) {
     let plot = {
         data: [],
         layout: {
-            title: "zlib-rs decompression",
+            title: "decompression",
             xaxis: {
                 title: "Benchmark Index",
                 tickformat: 'd', // only integers
