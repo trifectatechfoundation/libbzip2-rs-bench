@@ -35,11 +35,12 @@ function show_notification(html_text) {
         notificationElem.classList.add('hidden');
     }, 3000);
 }
-function compression_over_time(lines, counter) {
+function results_over_time(title, lines, group, keys, get_key, key_to_name, counter) {
+    var _a;
     let plot = {
         data: [],
         layout: {
-            title: "compression",
+            title,
             xaxis: {
                 title: "Benchmark Index",
                 tickformat: 'd', // only integers
@@ -63,44 +64,43 @@ function compression_over_time(lines, counter) {
         },
     };
     let unzipped = {};
-    for (let line of lines) {
-        for (let [group, runs] of Object.entries(line.bench_groups)) {
-            if (!group.startsWith("compress")) {
-                continue;
+    for (let i in lines) {
+        let line = lines[i];
+        for (let run of line.bench_groups[group]) {
+            const key = get_key(run.cmd);
+            if (!unzipped[key]) {
+                unzipped[key] = { x: [], y: [], error: [], sha: [] };
             }
-            for (let run of runs) {
-                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
-                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
-                key += " (" + group + ")";
-                if (!unzipped[key]) {
-                    unzipped[key] = { x: [], y: [], sha: [] };
-                }
-                unzipped[key].y.push(run.counters[counter].value);
-                unzipped[key].sha.push(line.commit_hash);
-            }
+            unzipped[key].y[i] = run.counters[counter].value;
+            unzipped[key].error[i] = Math.sqrt((_a = run.counters[counter].variance) !== null && _a !== void 0 ? _a : 0);
+            unzipped[key].sha[i] = line.commit_hash;
         }
     }
-    for (let key of Object.keys(unzipped)) {
+    for (let key of keys) {
         if (!unzipped[key]) {
             continue;
         }
         plot.data.push({
             y: unzipped[key].y,
+            error_y: {
+                type: "data",
+                array: unzipped[key].error,
+                visible: true,
+            },
             text: unzipped[key].sha,
-            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
+            name: key_to_name(key),
             hovertemplate: `%{y} %{text}`
         });
     }
     return plot;
 }
-function decompression_over_time(lines, counter) {
+function compare_impls(title, from_name, from, to_name, to, xaxis_title, get_xval, counter) {
     let plot = {
         data: [],
         layout: {
-            title: "decompression",
+            title,
             xaxis: {
-                title: "Benchmark Index",
-                tickformat: 'd', // only integers
+                title: xaxis_title,
             },
             yaxis: {
                 title: "Wall Time (ms)",
@@ -120,34 +120,37 @@ function decompression_over_time(lines, counter) {
             },
         },
     };
-    let unzipped = {};
-    for (let line of lines) {
-        for (let [group, runs] of Object.entries(line.bench_groups)) {
-            if (!group.startsWith("decompress")) {
-                continue;
-            }
-            for (let run of runs) {
-                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
-                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
-                key += " (" + group + ")";
-                if (!unzipped[key]) {
-                    unzipped[key] = { x: [], y: [], sha: [] };
-                }
-                unzipped[key].y.push(run.counters[counter].value);
-                unzipped[key].sha.push(line.commit_hash);
-            }
-        }
+    plot.data.push({
+        x: from.map((result) => get_xval(result.cmd)),
+        y: from.map((result) => result.counters[counter].value),
+        error_y: {
+            type: "data",
+            array: from.map((result) => { var _a; return Math.sqrt((_a = result.counters[counter].variance) !== null && _a !== void 0 ? _a : 0); }),
+            visible: true,
+        },
+        name: from_name,
+    });
+    if (typeof plot.data[0].x[0] == "string") {
+        plot.data[plot.data.length - 1].type = "bar";
     }
-    for (let key of Object.keys(unzipped)) {
-        if (!unzipped[key]) {
-            continue;
-        }
-        plot.data.push({
-            y: unzipped[key].y,
-            text: unzipped[key].sha,
-            name: `${key}`,
-            hovertemplate: `%{y} %{text}`
-        });
+    plot.data.push({
+        x: to.map((result) => get_xval(result.cmd)),
+        y: to.map((result) => result.counters[counter].value),
+        error_y: {
+            type: "data",
+            array: to.map((result) => { var _a; return Math.sqrt((_a = result.counters[counter].variance) !== null && _a !== void 0 ? _a : 0); }),
+            visible: true,
+        },
+        text: to.map((result, index) => {
+            let vrs = result.counters[counter].value;
+            let vng = from[index].counters[counter].value;
+            return ((vng / vrs)).toFixed(2);
+        }),
+        name: to_name,
+        hovertemplate: `%{y} (%{text}x faster than ${from_name})`
+    });
+    if (typeof plot.data[0].x[0] == "string") {
+        plot.data[plot.data.length - 1].type = "bar";
     }
     return plot;
 }
@@ -163,6 +166,13 @@ async function update(target) {
         .map((it) => JSON.parse(it));
     render(data_url, entries);
 }
+function render_plot(plot) {
+    const bodyElement = document.getElementById('plots');
+    // Render the plot
+    const plotDiv = document.createElement("div");
+    Plotly.newPlot(plotDiv, plot.data, plot.layout);
+    bodyElement.appendChild(plotDiv);
+}
 function render(data_url, entries) {
     const bodyElement = document.getElementById('plots');
     // clear the plots from the previous configuration
@@ -171,18 +181,26 @@ function render(data_url, entries) {
     }
     const counter = data_url.includes("macos") ? "user-time" : "task-clock";
     {
-        const plot = decompression_over_time(entries, counter);
-        // Render the plot
-        const plotDiv = document.createElement("div");
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-        bodyElement.appendChild(plotDiv);
+        const final = entries[entries.length - 1];
+        const final_c = final.bench_groups["decompress-c"];
+        const final_rs = final.bench_groups["decompress-rs"];
+        const plot = compare_impls(`bzip2-c versus bzip2-rs (decompression, on <a href="https://github.com/trifectatechfoundation/libbzip2-rs/commit/${final.commit_hash}">main</a>)`, "bzip2-c", final_c, "bzip2-rs", final_rs, "File", (cmd) => cmd[2].split("/").reverse()[0], counter);
+        render_plot(plot);
     }
     {
-        const plot = compression_over_time(entries, counter);
-        // Render the plot
-        const plotDiv = document.createElement("div");
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-        bodyElement.appendChild(plotDiv);
+        const plot = results_over_time("bzip2-rs decompression", entries, "decompress-rs", ["zip64support.tar.bz2", "re2-exhaustive.txt.bz2", "dancing-color.ps.bz2"], (cmd) => cmd[2].split("/").reverse()[0], (file) => file, counter);
+        render_plot(plot);
+    }
+    {
+        const final = entries[entries.length - 1];
+        const final_c = final.bench_groups["compress-c"];
+        const final_rs = final.bench_groups["compress-rs"];
+        const plot = compare_impls(`bzip2-c versus bzip2-rs (compression, on <a href="https://github.com/trifectatechfoundation/libbzip2-rs/commit/${final.commit_hash}">main</a>)`, "bzip2-c", final_c, "bzip2-rs", final_rs, "Compression Level", (cmd) => parseFloat(cmd[2]), counter);
+        render_plot(plot);
+    }
+    {
+        const plot = results_over_time("bzip2-rs compression", entries, "compress-rs", ["1", "2", "3", "4", "5", "6", "7", "8", "9"].reverse(), (cmd) => cmd[2], (level) => `level ${level}`, counter);
+        render_plot(plot);
     }
 }
 main();

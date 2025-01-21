@@ -10,7 +10,7 @@ type Root = {
     os: string
     runner: string
     cpu_model: string
-    bench_groups: { [key: string]: SingleBench[] },
+  bench_groups: {[key: string]: SingleBench[]},
 };
 
 type Timestamp = {
@@ -25,29 +25,13 @@ type SingleBench = {
 
 type CounterName = "cycles" | "instructions" | "user-time" | "task-clock";
 type Counters = {
-    cycles: Cycles
-    instructions: Instructions
-    "user-time": UserTime,
-    "task-clock": TaskClock
+  [name in CounterName]: Counter
 };
 
-type Cycles = {
-    value: string
-    unit: string
-};
-
-type Instructions = {
-    value: string
-    unit: string
-};
-
-type UserTime = {
-    value: string
-    unit: string
-};
-
-type TaskClock = {
-    value: string
+type Counter = {
+  value: number
+  variance: number | undefined
+  repetitions: number | undefined
     unit: string
 };
 
@@ -94,11 +78,19 @@ function show_notification(html_text: string) {
     }, 3000);
 }
 
-function compression_over_time(lines: Root[], counter: CounterName): Plots {
+function results_over_time(
+    title: string,
+    lines: Root[],
+    group: string,
+    keys: string[],
+    get_key: (cmd: string[]) => string,
+    key_to_name: (key: string) => string,
+    counter: CounterName,
+): Plots {
     let plot: Plots = {
         data: [],
         layout: {
-            title: "compression",
+            title,
             xaxis: {
                 title: "Benchmark Index",
                 tickformat: 'd', // only integers
@@ -122,38 +114,37 @@ function compression_over_time(lines: Root[], counter: CounterName): Plots {
         },
     };
 
-    let unzipped: { [level: string]: { x: [], y: string[], sha: string[] } } = {};
+    let unzipped: {[level: string]: {x: [], y: number[], error: number[], sha: string[]}} = {};
 
-    for (let line of lines) {
-        for (let [group, runs] of Object.entries(line.bench_groups)) {
-            if (!group.startsWith("compress")) {
-                continue;
+    for (let i in lines) {
+        let line = lines[i];
+        for (let run of line.bench_groups[group]) {
+            const key = get_key(run.cmd);
+
+            if (!unzipped[key]) {
+                unzipped[key] = { x: [], y: [], error: [], sha: [] };
             }
 
-            for (let run of runs) {
-                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
-                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
-                key += " (" + group + ")";
-
-                if (!unzipped[key]) {
-                    unzipped[key] = { x: [], y: [], sha: [] };
-                }
-
-                unzipped[key].y.push(run.counters[counter].value);
-                unzipped[key].sha.push(line.commit_hash);
-            }
+            unzipped[key].y[i] = run.counters[counter].value;
+            unzipped[key].error[i] = Math.sqrt(run.counters[counter].variance ?? 0);
+            unzipped[key].sha[i] = line.commit_hash;
         }
     }
 
-    for (let key of Object.keys(unzipped)) {
+    for (let key of keys) {
         if (!unzipped[key]) {
             continue;
         }
 
         plot.data.push({
             y: unzipped[key].y,
+            error_y: {
+                type: "data",
+                array: unzipped[key].error,
+                visible: true,
+            },
             text: unzipped[key].sha,
-            name: `${key.startsWith("tests/input/bzip2-testfiles/") ? key.slice("tests/input/bzip2-testfiles/".length) : key}`,
+            name: key_to_name(key),
             hovertemplate: `%{y} %{text}`
         });
     }
@@ -161,14 +152,22 @@ function compression_over_time(lines: Root[], counter: CounterName): Plots {
     return plot;
 }
 
-function decompression_over_time(lines: Root[], counter: CounterName): Plots {
-    let plot: Plots = {
+function compare_impls(
+    title: string,
+    from_name: string,
+    from: SingleBench[],
+    to_name: string,
+    to: SingleBench[],
+    xaxis_title: string,
+    get_xval: (cmd: string[]) => number | string,
+    counter: CounterName,
+): Plots {
+    let plot: Plots & { data: { x: string[] }[] } = {
         data: [],
         layout: {
-            title: "decompression",
+            title,
             xaxis: {
-                title: "Benchmark Index",
-                tickformat: 'd', // only integers
+                title: xaxis_title,
             },
             yaxis: {
                 title: "Wall Time (ms)",
@@ -189,39 +188,39 @@ function decompression_over_time(lines: Root[], counter: CounterName): Plots {
         },
     };
 
-    let unzipped: { [key: string]: { x: [], y: string[], sha: string[] } } = {};
-
-    for (let line of lines) {
-        for (let [group, runs] of Object.entries(line.bench_groups)) {
-            if (!group.startsWith("decompress")) {
-                continue;
-            }
-            for (let run of runs) {
-                let key = run.cmd[2].startsWith("tests/input/bzip2-testfiles/") ?
-                    run.cmd[2].slice("tests/input/bzip2-testfiles/".length) : run.cmd[2];
-                key += " (" + group + ")";
-
-                if (!unzipped[key]) {
-                    unzipped[key] = { x: [], y: [], sha: [] };
-                }
-
-                unzipped[key].y.push(run.counters[counter].value);
-                unzipped[key].sha.push(line.commit_hash);
-            }
-        }
+    plot.data.push({
+        x: from.map((result) => get_xval(result.cmd)),
+        y: from.map((result) => result.counters[counter].value),
+        error_y: {
+            type: "data",
+            array: from.map((result) => Math.sqrt(result.counters[counter].variance ?? 0)),
+            visible: true,
+        },
+        name: from_name,
+    });
+    if (typeof plot.data[0].x[0] == "string") {
+        plot.data[plot.data.length - 1].type = "bar";
     }
 
-    for (let key of Object.keys(unzipped)) {
-        if (!unzipped[key]) {
-            continue;
-        }
+    plot.data.push({
+        x: to.map((result) => get_xval(result.cmd)),
+        y: to.map((result) => result.counters[counter].value),
+        error_y: {
+            type: "data",
+            array: to.map((result) => Math.sqrt(result.counters[counter].variance ?? 0)),
+            visible: true,
+        },
+        text: to.map((result, index) => {
+            let vrs = result.counters[counter].value;
+            let vng = from[index].counters[counter].value;
 
-        plot.data.push({
-            y: unzipped[key].y,
-            text: unzipped[key].sha,
-            name: `${key}`,
-            hovertemplate: `%{y} %{text}`
-        });
+            return ((vng / vrs)).toFixed(2);
+        }),
+        name: to_name,
+        hovertemplate: `%{y} (%{text}x faster than ${from_name})`
+    });
+    if (typeof plot.data[0].x[0] == "string") {
+        plot.data[plot.data.length - 1].type = "bar";
     }
 
     return plot;
@@ -244,6 +243,19 @@ async function update(target: string) {
     render(data_url, entries);
 }
 
+function render_plot(plot: Plots) {
+    const bodyElement = document.getElementById('plots')!;
+
+    // Render the plot
+    const plotDiv = document.createElement(
+        "div"
+    ) as any as Plotly.PlotlyHTMLElement;
+
+    Plotly.newPlot(plotDiv, plot.data, plot.layout);
+
+    bodyElement.appendChild(plotDiv);
+}
+
 function render(data_url: string, entries: Root[]) {
     const bodyElement = document.getElementById('plots')!;
 
@@ -255,29 +267,63 @@ function render(data_url: string, entries: Root[]) {
     const counter: CounterName = data_url.includes("macos") ? "user-time" : "task-clock";
 
     {
-        const plot = decompression_over_time(entries, counter);
-
-        // Render the plot
-        const plotDiv = document.createElement(
-            "div"
-        ) as any as Plotly.PlotlyHTMLElement;
-
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-
-        bodyElement.appendChild(plotDiv);
+        const final = entries[entries.length - 1];
+        const final_c = final.bench_groups["decompress-c"];
+        const final_rs = final.bench_groups["decompress-rs"];
+        const plot = compare_impls(
+            `bzip2-c versus bzip2-rs (decompression, on <a href="https://github.com/trifectatechfoundation/libbzip2-rs/commit/${final.commit_hash}">main</a>)`,
+            "bzip2-c",
+            final_c,
+            "bzip2-rs",
+            final_rs,
+            "File",
+            (cmd) => cmd[2].split("/").reverse()[0],
+            counter,
+        );
+        render_plot(plot);
     }
 
     {
-        const plot = compression_over_time(entries, counter);
+        const plot = results_over_time(
+            "bzip2-rs decompression",
+            entries,
+            "decompress-rs",
+            ["zip64support.tar.bz2", "re2-exhaustive.txt.bz2", "dancing-color.ps.bz2"],
+            (cmd) => cmd[2].split("/").reverse()[0],
+            (file) => file,
+            counter,
+        );
+        render_plot(plot);
+    }
 
-        // Render the plot
-        const plotDiv = document.createElement(
-            "div"
-        ) as any as Plotly.PlotlyHTMLElement;
+    {
+        const final = entries[entries.length - 1];
+        const final_c = final.bench_groups["compress-c"];
+        const final_rs = final.bench_groups["compress-rs"];
+        const plot = compare_impls(
+            `bzip2-c versus bzip2-rs (compression, on <a href="https://github.com/trifectatechfoundation/libbzip2-rs/commit/${final.commit_hash}">main</a>)`,
+            "bzip2-c",
+            final_c,
+            "bzip2-rs",
+            final_rs,
+            "Compression Level",
+            (cmd) => parseFloat(cmd[2]),
+            counter,
+        );
+        render_plot(plot);
+    }
 
-        Plotly.newPlot(plotDiv, plot.data, plot.layout);
-
-        bodyElement.appendChild(plotDiv);
+    {
+        const plot = results_over_time(
+            "bzip2-rs compression",
+            entries,
+            "compress-rs",
+            ["1", "2", "3", "4", "5", "6", "7", "8", "9"].reverse(),
+            (cmd) => cmd[2],
+            (level) => `level ${level}`,
+            counter,
+        );
+        render_plot(plot);
     }
 }
 
