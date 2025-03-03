@@ -24,6 +24,25 @@ type SingleBench = {
 };
 
 type CounterName = "cycles" | "instructions" | "user-time" | "task-clock";
+
+function counter_to_title(counter: CounterName) {
+    switch (counter) {
+        case "task-clock": { return "Wall Time (ms)"; }
+        case "user-time": { return "Wall Time (ms)"; }
+        case "cycles": { return "Cycles"; }
+        case "instructions": { return "Instructions"; }
+        default: { return "unknown"; }
+    }
+}
+
+function counter_to_verb(counter: CounterName) {
+    switch (counter) {
+        case "task-clock": { return "faster"; }
+        case "user-time": { return "faster"; }
+        default: { return "better"; }
+    }
+}
+
 type Counters = {
   [name in CounterName]: Counter
 };
@@ -227,10 +246,10 @@ function compare_impls(
 }
 
 async function main() {
-    await update('linux-x86');
+    await update('linux-x86', 'task-clock');
 }
 
-async function update(target: string) {
+async function update(target: string, counter: CounterName) {
     let data_url = `https://raw.githubusercontent.com/trifectatechfoundation/libbzip2-rs-bench/main/metrics-${target}.json`
 
     const data = await (await fetch(data_url)).text();
@@ -240,7 +259,7 @@ async function update(target: string) {
         .filter((it) => it.length > 0)
         .map((it) => JSON.parse(it));
 
-    render(data_url, entries);
+    render(data_url, entries, counter);
 }
 
 function render_plot(plot: Plots) {
@@ -256,15 +275,13 @@ function render_plot(plot: Plots) {
     bodyElement.appendChild(plotDiv);
 }
 
-function render(data_url: string, entries: Root[]) {
+function render(data_url: string, entries: Root[], counter: CounterName) {
     const bodyElement = document.getElementById('plots')!;
 
     // clear the plots from the previous configuration
     while (bodyElement.firstChild) {
         bodyElement.removeChild(bodyElement.firstChild);
     }
-
-    const counter: CounterName = data_url.includes("macos") ? "user-time" : "task-clock";
 
     {
         const final = entries[entries.length - 1];

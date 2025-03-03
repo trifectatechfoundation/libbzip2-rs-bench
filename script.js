@@ -1,4 +1,36 @@
 "use strict";
+function counter_to_title(counter) {
+    switch (counter) {
+        case "task-clock": {
+            return "Wall Time (ms)";
+        }
+        case "user-time": {
+            return "Wall Time (ms)";
+        }
+        case "cycles": {
+            return "Cycles";
+        }
+        case "instructions": {
+            return "Instructions";
+        }
+        default: {
+            return "unknown";
+        }
+    }
+}
+function counter_to_verb(counter) {
+    switch (counter) {
+        case "task-clock": {
+            return "faster";
+        }
+        case "user-time": {
+            return "faster";
+        }
+        default: {
+            return "better";
+        }
+    }
+}
 function parseQueryString() {
     let start = null;
     let end = null;
@@ -155,16 +187,16 @@ function compare_impls(title, from_name, from, to_name, to, xaxis_title, get_xva
     return plot;
 }
 async function main() {
-    await update('linux-x86');
+    await update('linux-x86', 'task-clock');
 }
-async function update(target) {
+async function update(target, counter) {
     let data_url = `https://raw.githubusercontent.com/trifectatechfoundation/libbzip2-rs-bench/main/metrics-${target}.json`;
     const data = await (await fetch(data_url)).text();
     const entries = data
         .split('\n')
         .filter((it) => it.length > 0)
         .map((it) => JSON.parse(it));
-    render(data_url, entries);
+    render(data_url, entries, counter);
 }
 function render_plot(plot) {
     const bodyElement = document.getElementById('plots');
@@ -173,13 +205,12 @@ function render_plot(plot) {
     Plotly.newPlot(plotDiv, plot.data, plot.layout);
     bodyElement.appendChild(plotDiv);
 }
-function render(data_url, entries) {
+function render(data_url, entries, counter) {
     const bodyElement = document.getElementById('plots');
     // clear the plots from the previous configuration
     while (bodyElement.firstChild) {
         bodyElement.removeChild(bodyElement.firstChild);
     }
-    const counter = data_url.includes("macos") ? "user-time" : "task-clock";
     {
         const final = entries[entries.length - 1];
         const final_c = final.bench_groups["decompress-c"];
